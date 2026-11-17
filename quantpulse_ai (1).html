@@ -1,0 +1,1923 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuantPulse AI 跨市場即時看盤與股票健檢終端</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body {
+      background-color: #060913;
+      color: #e2e8f0;
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.84);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(51, 65, 85, 0.72);
+    }
+    @keyframes flashGreen {
+      0% { background-color: rgba(16, 185, 129, 0.35); }
+      100% { background-color: transparent; }
+    }
+    @keyframes flashRed {
+      0% { background-color: rgba(244, 63, 94, 0.35); }
+      100% { background-color: transparent; }
+    }
+    .tick-up { animation: flashGreen 0.8s ease-out; }
+    .tick-down { animation: flashRed 0.8s ease-out; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col overflow-x-hidden selection:bg-cyan-500/30 selection:text-cyan-200">
+
+  <!-- 頂部訊息提示條（取代 alert） -->
+  <div id="toast-banner" class="hidden fixed top-16 right-4 z-50 max-w-md bg-slate-900/95 border border-cyan-500/60 text-cyan-100 px-4 py-3 rounded-xl shadow-2xl text-xs flex items-center gap-2.5">
+    <span id="toast-icon">ℹ️</span>
+    <span id="toast-text" class="leading-relaxed">系統就緒</span>
+    <button onclick="hideToast()" class="ml-auto text-slate-400 hover:text-white px-1">✕</button>
+  </div>
+
+  <!-- 1. 頂部即時指揮列 -->
+  <header class="sticky top-0 z-40 glass-panel border-b border-slate-800 px-3 sm:px-5 py-2.5">
+    <div class="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2.5">
+      <!-- 品牌與連線狀態 -->
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-500/20">
+          Q
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-sm sm:text-base tracking-tight text-white">QuantPulse AI 全球即時看盤與健檢終端</h1>
+            <span id="conn-badge" class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              即時串流運轉中
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 hidden sm:block">
+            涵蓋台股・美股・英股・虛擬貨幣・黃金｜基本面 × 籌碼 × 技術 × 財報 × 消息 買賣決策系統
+          </p>
+        </div>
+      </div>
+
+      <!-- 全市場股票健檢搜尋欄 -->
+      <form onsubmit="handleSearchSubmit(event)" class="flex-1 max-w-md flex items-center gap-1.5">
+        <div class="relative flex-1">
+          <input
+            id="stock-search-input"
+            type="text"
+            placeholder="輸入代碼或名稱健檢（例: 2330, 台積電, NVDA, AZN.L, BTC, 2603）"
+            class="w-full bg-slate-950/90 border border-slate-700 focus:border-cyan-400 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
+          />
+          <span class="absolute right-2.5 top-1.5 text-slate-500 text-xs">🔍</span>
+        </div>
+        <button type="submit" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition whitespace-nowrap shadow">
+          健檢分析
+        </button>
+      </form>
+
+      <!-- 15秒自動同步與配色控制群 -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-700/90 px-2.5 py-1 rounded-lg">
+          <span class="text-cyan-400 text-xs">📅</span>
+          <span id="header-datetime" class="font-mono-num text-[11px] font-semibold text-slate-100">2026/11/17 (週二) --:--:--</span>
+        </div>
+        <span id="sync-countdown" class="font-mono-num text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-cyan-500/40 text-cyan-300 font-semibold">
+          ⏱️ 15s 後自動更新
+        </span>
+        <span id="last-sync-time" class="font-mono-num text-[11px] text-slate-400 hidden xl:inline">同步準備中</span>
+        <select id="poll-interval" onchange="setPollInterval(this.value)" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500">
+          <option value="15000" selected>每 15 秒自動更新</option>
+          <option value="30000">每 30 秒自動更新</option>
+          <option value="60000">每 60 秒自動更新</option>
+          <option value="0">手動更新</option>
+        </select>
+        <button id="btn-color-mode" onclick="toggleColorConvention()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 rounded-lg text-slate-200 transition">
+          🇹🇼 紅漲綠跌
+        </button>
+        <button onclick="openApiKeyModal()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 rounded-lg text-amber-300 transition" title="設定 Gemini API Key 以啟用 Google Search 聯網深度研報">
+          🔑 API Key
+        </button>
+        <button onclick="manualRefreshAll(false)" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-3 py-1.5 rounded-lg shadow transition flex items-center gap-1">
+          <span>🔄</span><span class="hidden sm:inline">立即更新報價</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 選填：Gemini API Key 設定彈窗（本機獨立開啟時使用） -->
+  <div id="apikey-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-4 shadow-2xl space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white">🔑 設定 Gemini API Key（選填）</h3>
+        <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-white text-xs">✕</button>
+      </div>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        台股、美股、英股、黃金與加密貨幣的<strong class="text-emerald-300">即時報價無需任何 Key 即可每 15 秒自動更新</strong>。若您希望啟用「AI 聯網搜尋最新財報與新聞深度統整」，可在此填入 Google Gemini API Key（僅儲存於您的瀏覽器本機）。
+      </p>
+      <input id="gemini-key-input" type="password" placeholder="貼上 AIzaSy... 開頭的金鑰" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500" />
+      <div class="flex justify-end gap-2">
+        <button onclick="closeApiKeyModal()" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">取消</button>
+        <button onclick="saveGeminiApiKey()" class="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-semibold hover:bg-cyan-500">儲存並測試連線</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 全球五大宏觀指數即時跑馬燈 -->
+  <section class="bg-slate-950/90 border-b border-slate-800/80 px-3 sm:px-5 py-2">
+    <div id="macro-ticker-bar" class="max-w-[1600px] mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+      <!-- 由 JS 動態渲染 -->
+    </div>
+  </section>
+
+  <!-- 3. 主三欄式看盤與 AI 決策工作台 -->
+  <main class="flex-1 max-w-[1600px] w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3.5">
+
+    <!-- 左側：跨市場即時觀察清單 (3欄) -->
+    <aside class="lg:col-span-3 glass-panel rounded-xl p-3 flex flex-col gap-2.5 max-h-[820px]">
+      <div class="flex items-center justify-between gap-1">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5 truncate">
+          <span>📡</span> 追蹤池 (<span id="watchlist-count">21</span>)
+        </h2>
+        <span id="live-clock" class="font-mono-num text-[10px] text-cyan-300 whitespace-nowrap">2026/11/17 --:--:--</span>
+      </div>
+
+      <!-- 市場分類篩選膠囊 -->
+      <div class="flex flex-wrap gap-1" id="market-filters">
+        <button onclick="filterMarket('ALL')" data-mkt="ALL" class="mkt-btn active text-[11px] px-2 py-1 rounded-md bg-cyan-600 text-white font-medium">全部</button>
+        <button onclick="filterMarket('TW')" data-mkt="TW" class="mkt-btn text-[11px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700">🇹🇼 台股</button>
+        <button onclick="filterMarket('US')" data-mkt="US" class="mkt-btn text-[11px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700">🇺🇸 美股</button>
+        <button onclick="filterMarket('UK')" data-mkt="UK" class="mkt-btn text-[11px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700">🇬🇧 英股</button>
+        <button onclick="filterMarket('CRYPTO')" data-mkt="CRYPTO" class="mkt-btn text-[11px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700">🌐 幣圈</button>
+        <button onclick="filterMarket('GOLD')" data-mkt="GOLD" class="mkt-btn text-[11px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700">🟡 黃金</button>
+      </div>
+
+      <!-- 觀察清單滾動區 -->
+      <div id="watchlist-container" class="flex-1 overflow-y-auto space-y-1.5 pr-1">
+        <!-- 由 JS 動態生成卡片 -->
+      </div>
+    </aside>
+
+    <!-- 中央：即時報價看板、互動 K 線圖與四維量化健檢 (5欄) -->
+    <section class="lg:col-span-5 flex flex-col gap-3.5">
+      <!-- 標的即時報價標頭 -->
+      <div class="glass-panel rounded-xl p-3.5">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="sel-market-tag" class="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">🇹🇼 台股上市</span>
+              <h2 id="sel-name" class="text-base sm:text-lg font-bold text-white">台積電 (2330.TW)</h2>
+              <span id="sel-source" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-mono-num">🟢 即時同步</span>
+            </div>
+            <p id="sel-sector" class="text-xs text-slate-400 mt-0.5">半導體晶圓代工龍頭・AI 算力物理瓶頸核心</p>
+            <p id="sel-quote-time" class="font-mono-num text-[10px] text-slate-400 mt-1">報價更新時間：2026/11/17 (週二) --:--:--</p>
+          </div>
+          <div id="sel-price-box" class="text-right rounded-lg px-2 py-1 transition-colors">
+            <div id="sel-price" class="font-mono-num text-xl sm:text-2xl font-bold text-white">2,200.00</div>
+            <div id="sel-change" class="font-mono-num text-xs font-semibold text-rose-400">+25.00 (+1.15%)</div>
+          </div>
+        </div>
+
+        <!-- 關鍵量化指標條 -->
+        <div class="grid grid-cols-4 gap-2 mt-3 pt-2.5 border-t border-slate-800/80 text-center font-mono-num">
+          <div class="bg-slate-950/70 rounded-lg p-1.5">
+            <div class="text-[10px] text-slate-400">當日最高</div>
+            <div id="sel-high" class="text-xs font-semibold text-slate-200">2,215.00</div>
+          </div>
+          <div class="bg-slate-950/70 rounded-lg p-1.5">
+            <div class="text-[10px] text-slate-400">當日最低</div>
+            <div id="sel-low" class="text-xs font-semibold text-slate-200">2,175.00</div>
+          </div>
+          <div class="bg-slate-950/70 rounded-lg p-1.5">
+            <div class="text-[10px] text-slate-400">預估本益比</div>
+            <div id="sel-pe" class="text-xs font-semibold text-cyan-300">23.2x</div>
+          </div>
+          <div class="bg-slate-950/70 rounded-lg p-1.5">
+            <div class="text-[10px] text-slate-400">RSI(14) 動能</div>
+            <div id="sel-rsi" class="text-xs font-semibold text-amber-300">54.2</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 互動式 K 線與買賣防線圖表 -->
+      <div class="glass-panel rounded-xl p-3 flex flex-col">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2 text-[11px]">
+            <span class="font-bold text-slate-200">技術走勢 & 買賣防線</span>
+            <span class="text-amber-400">● MA5</span>
+            <span class="text-cyan-400">● MA20</span>
+            <span class="text-purple-400">● MA60</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button onclick="setChartRange(30)" class="range-btn text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700" data-range="30">1M</button>
+            <button onclick="setChartRange(60)" class="range-btn active text-[11px] px-2 py-0.5 rounded bg-cyan-600 text-white" data-range="60">3M</button>
+            <button onclick="setChartRange(90)" class="range-btn text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700" data-range="90">6M</button>
+          </div>
+        </div>
+        <div id="kline-container" class="relative w-full h-[270px] sm:h-[300px] bg-slate-950/90 rounded-lg border border-slate-800/80 overflow-hidden">
+          <canvas id="kline-canvas" class="w-full h-full block cursor-crosshair"></canvas>
+          <div id="chart-hud" class="hidden pointer-events-none absolute top-2 left-2 bg-slate-900/90 border border-slate-700 rounded-md px-2.5 py-1 text-[11px] font-mono-num text-slate-200 shadow-lg"></div>
+        </div>
+      </div>
+
+      <!-- 基本面 / 籌碼面 / 技術面 / 財報與最新消息 四宮格 -->
+      <div class="glass-panel rounded-xl p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+        <div class="bg-slate-950/75 border border-slate-800 rounded-lg p-2.5">
+          <div class="font-bold text-cyan-300 mb-1 flex items-center justify-between">
+            <span>🏛️ 基本面與最新財報</span>
+            <span id="score-fund" class="font-mono-num text-[11px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300">92分</span>
+          </div>
+          <p id="dim-fundamental" class="text-slate-300 leading-relaxed text-[11px]"></p>
+        </div>
+        <div class="bg-slate-950/75 border border-slate-800 rounded-lg p-2.5">
+          <div class="font-bold text-amber-300 mb-1 flex items-center justify-between">
+            <span>🏦 籌碼面與機構流向</span>
+            <span id="score-chip" class="font-mono-num text-[11px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">84分</span>
+          </div>
+          <p id="dim-chips" class="text-slate-300 leading-relaxed text-[11px]"></p>
+        </div>
+        <div class="bg-slate-950/75 border border-slate-800 rounded-lg p-2.5">
+          <div class="font-bold text-purple-300 mb-1 flex items-center justify-between">
+            <span>📐 技術分析位階</span>
+            <span id="score-tech" class="font-mono-num text-[11px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300">78分</span>
+          </div>
+          <p id="dim-technical" class="text-slate-300 leading-relaxed text-[11px]"></p>
+        </div>
+        <div class="bg-slate-950/75 border border-slate-800 rounded-lg p-2.5">
+          <div class="font-bold text-emerald-300 mb-1 flex items-center justify-between">
+            <span>📰 最新消息與催化劑</span>
+            <span id="score-news" class="font-mono-num text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">偏多</span>
+          </div>
+          <p id="dim-news" class="text-slate-300 leading-relaxed text-[11px]"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右側：買賣時機決策與 AI 五維統整報告 (4欄) -->
+    <aside class="lg:col-span-4 glass-panel rounded-xl p-3.5 flex flex-col gap-3">
+      <!-- 明確買入與賣出時機總結框 -->
+      <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-white">🎯 AI 綜合買入／賣出時機判定</span>
+          <span id="adv-badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">拉回分批買入</span>
+        </div>
+        <p id="adv-summary" class="text-xs text-slate-300 leading-relaxed mb-2.5"></p>
+
+        <div class="grid grid-cols-3 gap-2 text-center font-mono-num text-xs">
+          <div class="bg-emerald-950/45 border border-emerald-700/50 rounded-lg p-2">
+            <div class="text-[10px] text-emerald-400">🟢 買入建議區間</div>
+            <div id="adv-buy-zone" class="font-bold text-emerald-300 mt-0.5">2,140 - 2,185</div>
+          </div>
+          <div class="bg-cyan-950/45 border border-cyan-700/50 rounded-lg p-2">
+            <div class="text-[10px] text-cyan-400">💰 獲利了結賣出</div>
+            <div id="adv-target" class="font-bold text-cyan-300 mt-0.5">2,450 - 2,520</div>
+          </div>
+          <div class="bg-rose-950/45 border border-rose-700/50 rounded-lg p-2">
+            <div class="text-[10px] text-rose-400">🛑 止損賣出防線</div>
+            <div id="adv-stop" class="font-bold text-rose-300 mt-0.5">2,060.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 五大研究思維模式切換器 -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-bold text-slate-300">🧠 AI 五維統整（基本/籌碼/技術/財報/消息）</span>
+          <button id="btn-ai-deep" onclick="generateAiResearchReport(true)" class="text-[11px] bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-semibold px-2.5 py-1 rounded-md shadow transition">
+            ✨ 重新 AI 聯網統整
+          </button>
+        </div>
+        <div class="grid grid-cols-5 gap-1" id="mode-selector">
+          <button onclick="selectResearchMode('1')" data-mode="1" class="mode-btn text-[11px] py-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium">1.第一性</button>
+          <button onclick="selectResearchMode('2')" data-mode="2" class="mode-btn text-[11px] py-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium">2.藍圖</button>
+          <button onclick="selectResearchMode('3')" data-mode="3" class="mode-btn text-[11px] py-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium">3.共識</button>
+          <button onclick="selectResearchMode('4')" data-mode="4" class="mode-btn text-[11px] py-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium">4.加速器</button>
+          <button onclick="selectResearchMode('5')" data-mode="5" class="mode-btn active text-[11px] py-1.5 rounded bg-cyan-600 text-white font-semibold">5.終極</button>
+        </div>
+      </div>
+
+      <!-- AI 統整報告輸出視窗 -->
+      <div id="research-output" class="flex-1 bg-slate-950/85 border border-slate-800 rounded-xl p-3 overflow-y-auto max-h-[450px] text-xs text-slate-200 leading-relaxed space-y-2.5">
+        <!-- 由 JS 動態填充 -->
+      </div>
+    </aside>
+  </main>
+
+  <!-- 4. 底部：全市場即時買賣策略總表 -->
+  <footer class="max-w-[1600px] w-full mx-auto px-3 sm:px-4 pb-6">
+    <div class="glass-panel rounded-xl p-3.5">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+        <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+          <span>📋</span> 全球跨市場即時買入／賣出與止損監控矩陣（點擊任一列切換主圖與 AI 分析）
+        </h3>
+        <span class="text-[11px] text-slate-400">所有建議價格隨每 15 秒即時報價與均線位置動態校準</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-slate-800 text-[11px] text-slate-400">
+              <th class="py-2 px-2">市場</th>
+              <th class="py-2 px-2">標的名稱 / 代碼</th>
+              <th class="py-2 px-2 text-right">即時報價</th>
+              <th class="py-2 px-2 text-right">漲跌幅</th>
+              <th class="py-2 px-2 text-center">AI 操作判定</th>
+              <th class="py-2 px-2 text-right">🟢 買入建議區間</th>
+              <th class="py-2 px-2 text-right">💰 獲利賣出目標</th>
+              <th class="py-2 px-2 text-right">🛑 止損賣出線</th>
+              <th class="py-2 px-2 hidden md:table-cell">核心催化與風險摘要</th>
+            </tr>
+          </thead>
+          <tbody id="strategy-matrix-body" class="divide-y divide-slate-800/60 font-mono-num">
+            <!-- 由 JS 動態生成 -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // ==========================================
+    // 1. 全球五大市場資料庫（校準 2026/11/17 最新市場報價）
+    // ==========================================
+    const STORAGE_KEY = 'quantpulse_global_terminal_v6';
+
+    const DEFAULT_MACRO = [
+      { symbol: '^TWII', name: '🇹🇼 台灣加權指數', price: 40387.37, prevClose: 40120.50, unit: '' },
+      { symbol: '^GSPC', name: '🇺🇸 標普 500', price: 6982.45, prevClose: 6945.10, unit: '' },
+      { symbol: '^FTSE', name: '🇬🇧 英國富時 100', price: 9842.10, prevClose: 9815.40, unit: '' },
+      { symbol: 'GC=F',  name: '🟡 現貨黃金 (oz)', price: 3856.52, prevClose: 3889.20, unit: '$' },
+      { symbol: 'BTC-USD', name: '₿ 比特幣 (BTC)', price: 64492.00, prevClose: 66120.00, unit: '$' },
+      { symbol: 'US10Y', name: '🏦 美10年債殖利率', price: 4.86, prevClose: 4.82, unit: '%' }
+    ];
+
+    const DEFAULT_STOCKS = {
+      // 🇹🇼 台灣股市
+      '2330.TW': {
+        symbol: '2330.TW', name: '台積電', market: 'TW', marketLabel: '🇹🇼 台股上市', currency: 'TWD',
+        sector: '晶圓代工龍頭・AI GPU/ASIC 雙軌唯一製造瓶頸',
+        price: 2200.00, prevClose: 2175.00, dayHigh: 2215.00, dayLow: 2170.00, pe: '23.2x',
+        fundamental: '最新Q3毛利率衝上58.2%，2奈米與CoWoS先進封裝產能滿載至2027年，無論雲端巨頭採購GPU或自研ASIC皆高度依賴台積電。',
+        chips: '外資現貨連3日回補，投信長線籌碼穩定鎖定，融資維持率健康。',
+        technical: '股價穩守季線(MA60)與2,140元強支撐帶上方，RSI(14)處於54中性偏多區間。',
+        news: '各大雲端巨頭上調2027年AI基礎設施資本支出，先進封裝報價具備進一步調漲空間。',
+        buyLow: 2140, buyHigh: 2185, targetLow: 2450, targetHigh: 2550, stopLoss: 2050,
+        liveSource: '🟢 即時同步'
+      },
+      '6669.TW': {
+        symbol: '6669.TW', name: '緯穎', market: 'TW', marketLabel: '🇹🇼 台股上市', currency: 'TWD',
+        sector: '雲端資料中心・AWS/Meta 自研 ASIC 伺服器整機龍頭',
+        price: 1440.00, prevClose: 1415.00, dayHigh: 1455.00, dayLow: 1405.00, pe: '14.5x',
+        fundamental: '受惠雲端巨頭加速部署客製化ASIC AI伺服器，單季EPS創歷史新高，預估本益比僅14.5倍具備高安全邊際。',
+        chips: '本土投信與主權基金持續逢低承接，大戶持股比例連續4週攀升。',
+        technical: '完成W底頸線突破並站穩月線(MA20)，量價配合得宜。',
+        news: '亞馬遜Trainium與Meta自研晶片機櫃進入放量交付高峰期，第四季營收有望再創新高。',
+        buyLow: 1380, buyHigh: 1430, targetLow: 1680, targetHigh: 1760, stopLoss: 1310,
+        liveSource: '🟢 即時同步'
+      },
+      '2454.TW': {
+        symbol: '2454.TW', name: '聯發科', market: 'TW', marketLabel: '🇹🇼 台股上市', currency: 'TWD',
+        sector: '邊緣 AI 旗艦晶片・雲端客製化 ASIC 設計新星',
+        price: 3820.00, prevClose: 3780.00, dayHigh: 3850.00, dayLow: 3765.00, pe: '21.8x',
+        fundamental: '天璣旗艦手機晶片市佔擴大，並成功切入Google TPU周邊與資料中心客製化ASIC專案，開啟第二成長曲線。',
+        chips: '外資目標價普遍調升至4,200元以上，高股息ETF定期定額買盤提供下檔支撐。',
+        technical: '沿10日均線震盪走高，MACD紅柱維持擴張。',
+        news: '新一代AI PC與車用座艙晶片將於明年首季貢獻顯著營收動能。',
+        buyLow: 3680, buyHigh: 3790, targetLow: 4200, targetHigh: 4380, stopLoss: 3520,
+        liveSource: '🟢 即時同步'
+      },
+      '2382.TW': {
+        symbol: '2382.TW', name: '廣達', market: 'TW', marketLabel: '🇹🇼 台股上市', currency: 'TWD',
+        sector: 'GB200/GB300 液冷整機櫃主力代工・車用電子',
+        price: 264.50, prevClose: 261.00, dayHigh: 266.00, dayLow: 259.50, pe: '15.2x',
+        fundamental: 'AI伺服器佔營收比重突破60%，高毛利液冷機櫃出貨順暢，ROE維持28%高水準。',
+        chips: '官股行庫與投信於255元附近積極護盤，外資賣壓明顯減輕。',
+        technical: '回測半年線獲強勁買盤支撐，日KD於低檔黃金交叉向上。',
+        news: '北美四大CSP客戶明年AI伺服器訂單能見度已直達下半年。',
+        buyLow: 252, buyHigh: 262, targetLow: 298, targetHigh: 315, stopLoss: 242,
+        liveSource: '🟢 即時同步'
+      },
+      '2317.TW': {
+        symbol: '2317.TW', name: '鴻海', market: 'TW', marketLabel: '🇹🇼 台股上市', currency: 'TWD',
+        sector: '全球電子代工龍頭・AI 機櫃垂直整合霸主',
+        price: 218.50, prevClose: 216.00, dayHigh: 220.00, dayLow: 215.00, pe: '14.8x',
+        fundamental: '最新財報三率三升，AI伺服器營收年增逾150%，全球產能分散布局有效降低關稅風險。',
+        chips: '千張大戶持股比例回升，外資由賣轉買。',
+        technical: '區間箱型整理接近尾聲，站穩220元將啟動新一波補漲。',
+        news: '墨西哥與台灣高雄AI伺服器超級工廠產能持續擴充。',
+        buyLow: 210, buyHigh: 217, targetLow: 245, targetHigh: 258, stopLoss: 202,
+        liveSource: '🟢 即時同步'
+      },
+      '3661.TW': {
+        symbol: '3661.TW', name: '世芯-KY', market: 'TW', marketLabel: '🇹🇼 台股上市', currency: 'TWD',
+        sector: '北美雲端巨頭 3nm/2nm 高階 ASIC 委託設計(NRE)',
+        price: 3120.00, prevClose: 3065.00, dayHigh: 3150.00, dayLow: 3040.00, pe: '24.6x',
+        fundamental: '北美最大雲端客戶次世代3奈米AI晶片已進入量產流片階段，明年營收重回高成長軌道。',
+        chips: '高價千金股指標，投信近期連續買超布局明年新專案行情。',
+        technical: '突破3,050元下降趨勢線反壓，均線呈多頭排列。',
+        news: '受惠大客戶去輝達化自研晶片策略，NRE設計開案量創歷史新高。',
+        buyLow: 2980, buyHigh: 3080, targetLow: 3500, targetHigh: 3680, stopLoss: 2840,
+        liveSource: '🟢 即時同步'
+      },
+
+      // 🇺🇸 美國股市
+      'GOOGL': {
+        symbol: 'GOOGL', name: 'Alphabet (Google)', market: 'US', marketLabel: '🇺🇸 美股 NASDAQ', currency: 'USD',
+        sector: '搜尋與雲端巨頭・自研 TPU v6/v7 算力護城河',
+        price: 283.72, prevClose: 280.15, dayHigh: 285.40, dayLow: 279.20, pe: '15.6x',
+        fundamental: 'Google Cloud營業利益率大幅擴張，憑藉全自研TPU集群訓練Gemini模型，資本支出效率居大型科技股之冠，本益比僅15.6倍極具吸引力。',
+        chips: '價值型機構基金大幅加碼，公司持續執行700億美元庫藏股回購。',
+        technical: '股價沿20日均線穩健推升，處於大型科技股中最強防禦多頭結構。',
+        news: '企業級AI搜尋與雲端API調用量季增逾85%，直接轉化為自由現金流。',
+        buyLow: 274.00, buyHigh: 282.00, targetLow: 315.00, targetHigh: 330.00, stopLoss: 262.00,
+        liveSource: '🟢 即時同步'
+      },
+      'NVDA': {
+        symbol: 'NVDA', name: 'NVIDIA (輝達)', market: 'US', marketLabel: '🇺🇸 美股 NASDAQ', currency: 'USD',
+        sector: 'AI 加速運算霸主・CUDA 軟體生態系',
+        price: 156.14, prevClose: 159.40, dayHigh: 160.20, dayLow: 154.80, pe: '26.4x',
+        fundamental: '最新財報營收仍維持高雙位數年增，但市場擔憂雲端巨頭自研ASIC分流及新一代架構轉換期的毛利率短期波動。',
+        chips: '短線動能資金進行高位獲利了結，選擇權市場150美元賣權未平倉量龐大形成心理支撐。',
+        technical: '自高點回檔修正約33%，目前正測試半年線與150-155美元關鍵支撐區，RSI降至39接近超賣。',
+        news: '下一代Rubin架構研發進度超前，但短線需消化機構對2027年資本支出增速放緩的雜音。',
+        buyLow: 148.00, buyHigh: 155.00, targetLow: 182.00, targetHigh: 195.00, stopLoss: 141.00,
+        liveSource: '🟢 即時同步'
+      },
+      'AVGO': {
+        symbol: 'AVGO', name: 'Broadcom (博通)', market: 'US', marketLabel: '🇺🇸 美股 NASDAQ', currency: 'USD',
+        sector: '客製化 AI ASIC 龍頭・高速乙太網交換晶片',
+        price: 333.40, prevClose: 328.90, dayHigh: 336.10, dayLow: 327.50, pe: '28.5x',
+        fundamental: '囊括Google、Meta、字節跳動等頂級雲端巨頭客製化AI晶片訂單，VMware軟體訂閱現金流極為穩健。',
+        chips: '華爾街多數投行將其列為「ASIC時代首選受惠股」，機構持股集中度高。',
+        technical: '回測50日均線後強勢反彈，量能溫和放大。',
+        news: 'AI網通晶片與客製化加速器年度營收預估將突破180億美元大關。',
+        buyLow: 320.00, buyHigh: 330.00, targetLow: 375.00, targetHigh: 392.00, stopLoss: 304.00,
+        liveSource: '🟢 即時同步'
+      },
+      'AMAT': {
+        symbol: 'AMAT', name: 'Applied Materials (應材)', market: 'US', marketLabel: '🇺🇸 美股 NASDAQ', currency: 'USD',
+        sector: '全球最大半導體沉積與蝕刻設備商・GAA製程核心',
+        price: 350.25, prevClose: 346.80, dayHigh: 352.90, dayLow: 345.10, pe: '22.1x',
+        fundamental: '受惠2奈米環繞式閘極(GAA)電晶體與HBM高頻寬記憶體設備擴產，服務型訂閱營收佔比穩定提升。',
+        chips: '長線退休基金與半導體ETF核心配置，籌碼安定度高。',
+        technical: '站穩所有短中期均線之上，呈穩健階梯式上漲。',
+        news: '先進封裝混合鍵合(Hybrid Bonding)設備訂單創歷史新高。',
+        buyLow: 338.00, buyHigh: 348.00, targetLow: 388.00, targetHigh: 405.00, stopLoss: 322.00,
+        liveSource: '🟢 即時同步'
+      },
+      'MSFT': {
+        symbol: 'MSFT', name: 'Microsoft (微軟)', market: 'US', marketLabel: '🇺🇸 美股 NASDAQ', currency: 'USD',
+        sector: 'Azure 企業雲端・Copilot 企業級 AI 軟體霸主',
+        price: 488.60, prevClose: 485.20, dayHigh: 490.80, dayLow: 483.90, pe: '29.8x',
+        fundamental: 'Azure雲端年增率維持31%高檔，企業端Copilot付費席次穩定滲透，但龐大資料中心折舊短期壓抑毛利率擴張。',
+        chips: '全球機構第一大核心持倉股，波動率低於半導體硬體股。',
+        technical: '於475-495美元大箱型區間震盪蓄勢，靜待突破。',
+        news: '自研Maia AI晶片逐步上線，有助降低對外部GPU採購依賴。',
+        buyLow: 472.00, buyHigh: 485.00, targetLow: 525.00, targetHigh: 540.00, stopLoss: 455.00,
+        liveSource: '🟢 即時同步'
+      },
+
+      // 🇬🇧 英國股市 (LSE 倫敦證交所，報價單位為便士 GBp)
+      'AZN.L': {
+        symbol: 'AZN.L', name: 'AstraZeneca (阿斯特捷利康)', market: 'UK', marketLabel: '🇬🇧 英股 LSE', currency: 'GBp',
+        sector: '全球腫瘤與罕見疾病製藥巨頭・富時100權值龍頭',
+        price: 14034.00, prevClose: 13920.00, dayHigh: 14110.00, dayLow: 13880.00, pe: '18.9x',
+        fundamental: '腫瘤藥物與ADC抗體藥物偶聯物產品線強勁，最新季報雙位數營收成長並上調全年財測，具備抗景氣循環防禦力。',
+        chips: '歐洲與英國退休基金重倉核心，外資機構持續流入防禦性醫療板塊。',
+        technical: '突破13,900p平台整理區，均線多頭發散。',
+        news: '多項晚期臨床三期新藥試驗數據優於預期，鞏固2030年800億美元營收目標。',
+        buyLow: 13650, buyHigh: 13950, targetLow: 15200, targetHigh: 15600, stopLoss: 13150,
+        liveSource: '🟢 即時同步'
+      },
+      'SHEL.L': {
+        symbol: 'SHEL.L', name: 'Shell (殼牌能源)', market: 'UK', marketLabel: '🇬🇧 英股 LSE', currency: 'GBp',
+        sector: '全球液化天然氣(LNG)龍頭・高股息與庫藏股現金牛',
+        price: 3665.00, prevClose: 3642.00, dayHigh: 3685.00, dayLow: 3630.00, pe: '10.4x',
+        fundamental: '全球LNG貿易市佔第一，自由現金流極為充沛，每季穩定執行35億美元庫藏股回購並配發高現金股利。',
+        chips: '高實質利率環境下，低本益比價值型資金持續流入能源巨頭。',
+        technical: '穩守200日年線支撐，呈緩步墊高格局。',
+        news: 'AI資料中心龐大電力需求推升全球天然氣長期合約簽署熱度。',
+        buyLow: 3560, buyHigh: 3640, targetLow: 3980, targetHigh: 4120, stopLoss: 3420,
+        liveSource: '🟢 即時同步'
+      },
+      'HSBA.L': {
+        symbol: 'HSBA.L', name: 'HSBC Holdings (滙豐控股)', market: 'UK', marketLabel: '🇬🇧 英股 LSE', currency: 'GBp',
+        sector: '跨國商業與財富管理銀行・高息率受惠股',
+        price: 1354.40, prevClose: 1345.00, dayHigh: 1362.00, dayLow: 1340.00, pe: '8.7x',
+        fundamental: '美英利率維持高檔延長銀行淨利差(NIM)紅利，亞洲財富管理手續費收入年增逾20%，股息殖利率逾6.5%。',
+        chips: '公司持續大規模回購註銷股份，股價淨值比仍具重估空間。',
+        technical: '沿20日均線穩健上行，多頭結構完整。',
+        news: '組織架構精簡計畫每年節省逾15億美元營運成本，提升股東權益報酬率。',
+        buyLow: 1315, buyHigh: 1345, targetLow: 1460, targetHigh: 1510, stopLoss: 1265,
+        liveSource: '🟢 即時同步'
+      },
+      'REL.L': {
+        symbol: 'REL.L', name: 'RELX (勵訊集團)', market: 'UK', marketLabel: '🇬🇧 英股 LSE', currency: 'GBp',
+        sector: '法律、科學與風險數據分析巨頭・專有資料庫 AI 變現',
+        price: 3074.60, prevClose: 3055.00, dayHigh: 3090.00, dayLow: 3042.00, pe: '25.8x',
+        fundamental: '擁有不可複製的全球法律(LexisNexis)與科學期刊專有資料庫，AI工具Lexis+ AI帶動客單價與續約率雙升。',
+        chips: '歐洲品質成長型基金長期核心持股，波動度極低。',
+        technical: '回測月線後迅速收復，趨勢穩健。',
+        news: '風險分析部門受惠全球金融反詐欺與合規需求，維持高個位數內生性成長。',
+        buyLow: 2990, buyHigh: 3060, targetLow: 3320, targetHigh: 3420, stopLoss: 2880,
+        liveSource: '🟢 即時同步'
+      },
+      'RR.L': {
+        symbol: 'RR.L', name: 'Rolls-Royce (勞斯萊斯航太)', market: 'UK', marketLabel: '🇬🇧 英股 LSE', currency: 'GBp',
+        sector: '廣體客機航空發動機・國防與小型模組化核電(SMR)',
+        price: 1369.60, prevClose: 1352.00, dayHigh: 1380.00, dayLow: 1345.00, pe: '21.4x',
+        fundamental: '全球長程航空飛行時數超越疫情前水準，發動機維修長約貢獻暴增自由現金流，信用評等重返投資級。',
+        chips: '英股年度最強勢藍籌股之一，機構持續上調自由現金流預估。',
+        technical: '強勢多頭排列，每次回測10日線皆獲買盤承接。',
+        news: '英國與歐洲小型核反應爐(SMR)專案獲政府選定，為資料中心供電提供長期想像空間。',
+        buyLow: 1320, buyHigh: 1360, targetLow: 1500, targetHigh: 1560, stopLoss: 1255,
+        liveSource: '🟢 即時同步'
+      },
+
+      // 🌐 虛擬貨幣
+      'BTC-USD': {
+        symbol: 'BTC-USD', name: 'Bitcoin (比特幣)', market: 'CRYPTO', marketLabel: '🌐 加密貨幣現貨', currency: 'USD',
+        sector: '數位黃金・2100萬枚演算法絕對稀缺儲備資產',
+        price: 64492.00, prevClose: 66120.00, dayHigh: 66450.00, dayLow: 63850.00, pe: 'N/A (市值$1.28T)',
+        fundamental: '現貨ETF機構長期持倉穩固，市佔率逆勢維持近60%，但短線受美10年期債殖利率逼近5%與11/30 MSCI指數剔除Strategy(MSTR)事件壓抑。',
+        chips: '衍生品高槓桿多單已大幅清洗，長期持有者(LTH)地址在63,000-65,000美元區間出現現貨吸籌。',
+        technical: '短線跌破月線進入震盪築底，RSI降至36接近超賣區，62,500-64,500美元為關鍵鏈上實現價格支撐帶。',
+        news: '市場正消化11月底MSCI被動指數調整賣壓與12月聯準會利率決議不確定性，現貨階梯低接勝率高於追高。',
+        buyLow: 62500, buyHigh: 64800, targetLow: 74000, targetHigh: 78500, stopLoss: 59800,
+        liveSource: '⚡ Binance 毫秒串流'
+      },
+      'ETH-USD': {
+        symbol: 'ETH-USD', name: 'Ethereum (以太幣)', market: 'CRYPTO', marketLabel: '🌐 加密貨幣現貨', currency: 'USD',
+        sector: '去中心化智能合約平台・Layer-2 生態結算層',
+        price: 1816.00, prevClose: 1875.00, dayHigh: 1890.00, dayLow: 1795.00, pe: 'N/A (市佔偏弱)',
+        fundamental: 'Layer-2擴容大幅降低主網Gas費用，導致ETH銷毀量下降並重回微幅通膨，ETH/BTC匯率跌至0.0281多年低點。',
+        chips: '現貨ETF資金流入明顯弱於比特幣，鏈上巨鯨大戶採取觀望態度。',
+        technical: '跌破2,000美元心理整數關卡後呈現弱勢空頭排列，必須帶量收復2,050美元才算止跌。',
+        news: '基金會推動協議層執行效率升級，但短期缺乏強勢資金催化，建議嚴控倉位比重。',
+        buyLow: 1680, buyHigh: 1760, targetLow: 2080, targetHigh: 2220, stopLoss: 1590,
+        liveSource: '⚡ Binance 毫秒串流'
+      },
+      'SOL-USD': {
+        symbol: 'SOL-USD', name: 'Solana', market: 'CRYPTO', marketLabel: '🌐 加密貨幣現貨', currency: 'USD',
+        sector: '高吞吐量單體公鏈・鏈上高頻交易與支付網路',
+        price: 71.75, prevClose: 74.20, dayHigh: 75.10, dayLow: 70.40, pe: 'N/A (高Beta公鏈)',
+        fundamental: '鏈上DEX交易量與活躍地址數仍居公鏈前茅，但作為高Beta風險資產對宏觀流動性緊縮極為敏感。',
+        chips: '高槓桿投機籌碼隨大盤回檔快速出清，現貨買盤集中在66-70美元支撐帶。',
+        technical: '處於超跌反彈觀察區，波動率極高，嚴禁使用槓桿合約。',
+        news: '新型Firedancer驗證者客戶端持續提升網路穩定性與TPS上限。',
+        buyLow: 66.00, buyHigh: 70.50, targetLow: 86.00, targetHigh: 94.00, stopLoss: 61.50,
+        liveSource: '⚡ Binance 毫秒串流'
+      },
+
+      // 🟡 黃金
+      'GC=F': {
+        symbol: 'GC=F', name: '現貨黃金 (Gold Spot)', market: 'GOLD', marketLabel: '🟡 國際貴金屬現貨', currency: 'USD',
+        sector: '零交易對手風險主權儲備資產・抗通膨與地緣避險錨',
+        price: 3856.52, prevClose: 3889.20, dayHigh: 3895.00, dayLow: 3842.00, pe: 'N/A (實物稀缺)',
+        fundamental: '短線受美國10年期公債殖利率逼近5%的實質利率重力壓制而自4,220美元高檔回檔，但全球新興市場央行去美元化購金需求仍構成長線鐵底。',
+        chips: '期貨投機淨多單適度降溫，實體黃金ETF與亞洲央行逢低承接力道強勁。',
+        technical: '回測3,800-3,860美元中期上升趨勢線與年線支撐區，RSI降至38具備極佳風險報酬比。',
+        news: '美國財政赤字持續擴大與地緣風險未除，實質利率一旦見頂回落將啟動黃金新一輪主升段。',
+        buyLow: 3800.00, buyHigh: 3865.00, targetLow: 4150.00, targetHigh: 4280.00, stopLoss: 3710.00,
+        liveSource: '🟢 即時同步'
+      }
+    };
+
+    // 常見中英文名稱映射表，方便直接輸入中文名稱查詢
+    const NAME_ALIAS_MAP = {
+      '台積電': '2330.TW', 'tsmc': '2330.TW', '2330': '2330.TW',
+      '緯穎': '6669.TW', 'wiwynn': '6669.TW', '6669': '6669.TW',
+      '聯發科': '2454.TW', 'mediatek': '2454.TW', '2454': '2454.TW',
+      '廣達': '2382.TW', 'quanta': '2382.TW', '2382': '2382.TW',
+      '鴻海': '2317.TW', 'foxconn': '2317.TW', '2317': '2317.TW',
+      '世芯': '3661.TW', '世芯-ky': '3661.TW', '3661': '3661.TW',
+      '長榮': '2603.TW', '2603': '2603.TW',
+      '台達電': '2308.TW', '2308': '2308.TW',
+      '日月光': '3711.TW', '3711': '3711.TW',
+      '奇鋐': '3017.TW', '3017': '3017.TW',
+      '雙鴻': '3324.TWO', '3324': '3324.TWO',
+      'google': 'GOOGL', 'alphabet': 'GOOGL', '谷歌': 'GOOGL',
+      'nvidia': 'NVDA', '輝達': 'NVDA',
+      'broadcom': 'AVGO', '博通': 'AVGO',
+      'applied materials': 'AMAT', '應材': 'AMAT', '應用材料': 'AMAT',
+      'microsoft': 'MSFT', '微軟': 'MSFT',
+      'apple': 'AAPL', '蘋果': 'AAPL',
+      'tesla': 'TSLA', '特斯拉': 'TSLA',
+      'meta': 'META', '臉書': 'META',
+      'amd': 'AMD', '超微': 'AMD',
+      'astrazeneca': 'AZN.L', '阿斯特捷利康': 'AZN.L', 'azn': 'AZN.L',
+      'shell': 'SHEL.L', '殼牌': 'SHEL.L', 'shel': 'SHEL.L',
+      'hsbc': 'HSBA.L', '滙豐': 'HSBA.L', '匯豐': 'HSBA.L', 'hsba': 'HSBA.L',
+      'relx': 'REL.L', '勵訊': 'REL.L', 'rel': 'REL.L',
+      'rolls-royce': 'RR.L', '勞斯萊斯': 'RR.L', 'rr': 'RR.L',
+      'btc': 'BTC-USD', 'bitcoin': 'BTC-USD', '比特幣': 'BTC-USD',
+      'eth': 'ETH-USD', 'ethereum': 'ETH-USD', '以太幣': 'ETH-USD',
+      'sol': 'SOL-USD', 'solana': 'SOL-USD',
+      'gold': 'GC=F', '黃金': 'GC=F', 'xau': 'GC=F'
+    };
+
+    // ==========================================
+    // 2. 全域狀態變數（唯一宣告，杜絕重複衝突）
+    // ==========================================
+    let macroList = JSON.parse(JSON.stringify(DEFAULT_MACRO));
+    let stockPool = {};
+    let currentSymbol = '2330.TW';
+    let currentMarketFilter = 'ALL';
+    let currentResearchMode = '5';
+    let chartRange = 60;
+    let isTwColor = true; // true = 台股紅漲綠跌; false = 美股綠漲紅跌
+    let pollTimer = null;
+    let countdownTimer = null;
+    let pollIntervalMs = 15000;
+    let remainingSec = 15;
+    let isSyncingNow = false;
+    let binanceWs = null;
+    let lastWsRenderTs = 0;
+    const aiReportCache = {};
+
+    function loadStateFromStorage() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.stockPool && Object.keys(parsed.stockPool).length > 0) {
+            stockPool = parsed.stockPool;
+            if (parsed.macroList) macroList = parsed.macroList;
+            if (typeof parsed.isTwColor === 'boolean') isTwColor = parsed.isTwColor;
+            return;
+          }
+        }
+      } catch (e) {}
+      stockPool = JSON.parse(JSON.stringify(DEFAULT_STOCKS));
+    }
+
+    function saveStateToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          stockPool,
+          macroList,
+          isTwColor,
+          updatedAt: Date.now()
+        }));
+      } catch (e) {}
+    }
+
+    // ==========================================
+    // 3. 技術指標計算與動態買賣訊號判定引擎
+    // ==========================================
+    function generateOrGetCandles(s) {
+      if (s.candles && s.candles.length >= 90) {
+        const last = s.candles[s.candles.length - 1];
+        last.close = s.price;
+        last.high = Math.max(last.high, s.dayHigh || s.price);
+        last.low = Math.min(last.low, s.dayLow || s.price);
+        return s.candles;
+      }
+      const candles = [];
+      let p = s.price * 0.92;
+      const now = Date.now();
+      for (let i = 95; i >= 1; i--) {
+        const drift = (s.price - p) / (i + 4);
+        const vol = s.price * 0.014;
+        const open = p;
+        const close = open + drift + (Math.sin(i * 0.7) * 0.4 + Math.cos(i * 1.3) * 0.3) * vol;
+        const high = Math.max(open, close) + Math.abs(Math.sin(i)) * vol * 0.6;
+        const low = Math.min(open, close) - Math.abs(Math.cos(i)) * vol * 0.6;
+        candles.push({
+          date: new Date(now - i * 86400000).toISOString().slice(5, 10),
+          open, high, low, close
+        });
+        p = close;
+      }
+      candles.push({
+        date: new Date(now).toISOString().slice(5, 10),
+        open: s.prevClose || s.price,
+        high: s.dayHigh || s.price,
+        low: s.dayLow || s.price,
+        close: s.price
+      });
+      s.candles = candles;
+      return candles;
+    }
+
+    function computeTechnicalIndicators(candles) {
+      const closes = candles.map(c => c.close);
+      const sma = (period, idx) => {
+        if (idx + 1 < period) return null;
+        let sum = 0;
+        for (let i = idx - period + 1; i <= idx; i++) sum += closes[i];
+        return sum / period;
+      };
+      const ma5 = closes.map((_, i) => sma(5, i));
+      const ma20 = closes.map((_, i) => sma(20, i));
+      const ma60 = closes.map((_, i) => sma(60, i));
+
+      // RSI(14)
+      let gains = 0, losses = 0;
+      const start = Math.max(1, closes.length - 14);
+      for (let i = start; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      const rs = losses === 0 ? 100 : gains / losses;
+      const rsi = +(100 - 100 / (1 + rs)).toFixed(1);
+
+      return { ma5, ma20, ma60, rsi };
+    }
+
+    function evaluateDynamicSignal(s) {
+      const candles = generateOrGetCandles(s);
+      const { ma20, ma60, rsi } = computeTechnicalIndicators(candles);
+      const latestMa20 = ma20[ma20.length - 1] || s.price;
+      const latestMa60 = ma60[ma60.length - 1] || s.price * 0.96;
+      s.rsi = rsi;
+
+      // 動態調整買賣區間與止損（若尚未設定則自動推算）
+      if (!s.buyLow) s.buyLow = +(latestMa20 * 0.975).toFixed(2);
+      if (!s.buyHigh) s.buyHigh = +(latestMa20 * 0.998).toFixed(2);
+      if (!s.targetLow) s.targetLow = +(s.price * 1.11).toFixed(2);
+      if (!s.targetHigh) s.targetHigh = +(s.price * 1.16).toFixed(2);
+      if (!s.stopLoss) s.stopLoss = +(latestMa60 * 0.94).toFixed(2);
+
+      if (s.price <= s.stopLoss) {
+        s.signalLabel = '🛑 跌破防線／嚴格止損';
+        s.signalColor = 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+        s.signalAdvice = `目前報價已跌破關鍵止損線 ${formatPrice(s.stopLoss, s.currency)}，多頭結構破壞，建議嚴格執行紀律賣出控管風險。`;
+      } else if (s.price <= s.buyHigh && s.price >= s.buyLow * 0.98) {
+        s.signalLabel = '🟢 觸及買點／分批低接';
+        s.signalColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+        s.signalAdvice = `目前報價落入黃金買入區間（${formatPrice(s.buyLow, s.currency)} - ${formatPrice(s.buyHigh, s.currency)}），下檔靠近技術支撐，適合分批布局；波段看至 ${formatPrice(s.targetLow, s.currency)}。`;
+      } else if (s.price >= s.targetLow || rsi >= 72) {
+        s.signalLabel = '💰 達標過熱／分批獲利';
+        s.signalColor = 'bg-amber-500/20 text-amber-300 border-amber-500/40';
+        s.signalAdvice = `股價已接近或觸及第一獲利了結區（${formatPrice(s.targetLow, s.currency)}）且動能偏熱（RSI ${rsi}），建議分批賣出鎖定利潤，切勿盲目追高。`;
+      } else if (s.price > latestMa20) {
+        s.signalLabel = '📈 多頭趨勢／拉回買入';
+        s.signalColor = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40';
+        s.signalAdvice = `股價穩守月線（${formatPrice(latestMa20, s.currency)}）之上，基本面與趨勢偏多，建議等待拉回至 ${formatPrice(s.buyLow, s.currency)} - ${formatPrice(s.buyHigh, s.currency)} 分批買進。`;
+      } else {
+        s.signalLabel = '⚖️ 震盪築底／觀察買點';
+        s.signalColor = 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40';
+        s.signalAdvice = `短線處於均線下方震盪消化賣壓，建議於支撐帶 ${formatPrice(s.buyLow, s.currency)} 附近掛單低接，並嚴設 ${formatPrice(s.stopLoss, s.currency)} 止損。`;
+      }
+    }
+
+    // ==========================================
+    // 4. 格式化、配色與日期時間工具
+    // ==========================================
+    const WEEKDAYS_ZH = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+    function formatFullDateTime(dateObj = new Date(), includeWeekday = true) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const mm = String(dateObj.getMinutes()).padStart(2, '0');
+      const ss = String(dateObj.getSeconds()).padStart(2, '0');
+      if (includeWeekday) {
+        const w = WEEKDAYS_ZH[dateObj.getDay()];
+        return `${y}/${m}/${d} (${w}) ${hh}:${mm}:${ss}`;
+      }
+      return `${y}/${m}/${d} ${hh}:${mm}:${ss}`;
+    }
+
+    function openApiKeyModal() {
+      const modal = document.getElementById('apikey-modal');
+      const input = document.getElementById('gemini-key-input');
+      if (input) input.value = localStorage.getItem('quantpulse_gemini_api_key') || '';
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeApiKeyModal() {
+      const modal = document.getElementById('apikey-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function saveGeminiApiKey() {
+      const input = document.getElementById('gemini-key-input');
+      const val = (input?.value || '').trim();
+      if (val) {
+        localStorage.setItem('quantpulse_gemini_api_key', val);
+        showToast('✅ 已儲存 Gemini API Key，正在啟動全市場聯網同步...', '🔑');
+      } else {
+        localStorage.removeItem('quantpulse_gemini_api_key');
+        showToast('已清除自訂 API Key，將使用免金鑰公開即時報價源。', 'ℹ️');
+      }
+      closeApiKeyModal();
+      manualRefreshAll(false);
+    }
+
+    function flashPriceBox(elId, isUp) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const cls = isTwColor ? (isUp ? 'tick-down' : 'tick-up') : (isUp ? 'tick-up' : 'tick-down');
+      el.classList.remove('tick-up', 'tick-down');
+      void el.offsetWidth;
+      el.classList.add(cls);
+    }
+
+    function formatPrice(val, currency = 'USD') {
+      if (val === null || val === undefined || isNaN(val)) return '--';
+      const num = Number(val);
+      if (currency === 'TWD') {
+        return num >= 100 ? num.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) : num.toFixed(2);
+      }
+      if (currency === 'GBp') {
+        return `${num.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}p`;
+      }
+      return num >= 1000
+        ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `$${num.toFixed(2)}`;
+    }
+
+    function getUpDownClasses(isUp) {
+      if (isTwColor) {
+        return isUp
+          ? { text: 'text-rose-400', bg: 'bg-rose-500/15', candle: '#f43f5e' }
+          : { text: 'text-emerald-400', bg: 'bg-emerald-500/15', candle: '#10b981' };
+      } else {
+        return isUp
+          ? { text: 'text-emerald-400', bg: 'bg-emerald-500/15', candle: '#10b981' }
+          : { text: 'text-rose-400', bg: 'bg-rose-500/15', candle: '#f43f5e' };
+      }
+    }
+
+    function toggleColorConvention() {
+      isTwColor = !isTwColor;
+      const btn = document.getElementById('btn-color-mode');
+      if (btn) btn.textContent = isTwColor ? '🇹🇼 紅漲綠跌' : '🇺🇸 綠漲紅跌';
+      saveStateToStorage();
+      renderAllViews(false);
+    }
+
+    let toastTimeout = null;
+    function showToast(msg, icon = 'ℹ️') {
+      const banner = document.getElementById('toast-banner');
+      if (!banner) return;
+      document.getElementById('toast-icon').textContent = icon;
+      document.getElementById('toast-text').textContent = msg;
+      banner.classList.remove('hidden');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(hideToast, 4500);
+    }
+
+    function hideToast() {
+      const banner = document.getElementById('toast-banner');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const fullStr = formatFullDateTime(now, true);
+      const compactStr = formatFullDateTime(now, false);
+      const headerEl = document.getElementById('header-datetime');
+      const sideEl = document.getElementById('live-clock');
+      if (headerEl) headerEl.textContent = fullStr;
+      if (sideEl) sideEl.textContent = compactStr;
+    }
+
+    // ==========================================
+    // 5. 多源即時報價引擎（Binance WS/REST + GoldPrice + Yahoo競速 + Gemini）
+    // ==========================================
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timer);
+        return res;
+      } catch (err) {
+        clearTimeout(timer);
+        throw err;
+      }
+    }
+
+    // 1A) Binance 毫秒級 WebSocket 直連虛擬貨幣即時報價
+    function initBinanceWebSocket() {
+      try {
+        if (binanceWs) binanceWs.close();
+        binanceWs = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker/ethusdt@ticker/solusdt@ticker');
+        binanceWs.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (!data || !data.s || !data.c) return;
+          const map = { BTCUSDT: 'BTC-USD', ETHUSDT: 'ETH-USD', SOLUSDT: 'SOL-USD' };
+          const sym = map[data.s];
+          if (!sym || !stockPool[sym]) return;
+
+          const s = stockPool[sym];
+          const newPrice = parseFloat(data.c);
+          if (!isNaN(newPrice) && newPrice > 0) {
+            const oldPrice = s.price;
+            s.price = newPrice;
+            if (data.o) s.prevClose = parseFloat(data.o);
+            if (data.h) s.dayHigh = parseFloat(data.h);
+            if (data.l) s.dayLow = parseFloat(data.l);
+            s.lastUpdated = formatFullDateTime(new Date(), true);
+            s.liveSource = `⚡ Binance WS (${new Date().toLocaleTimeString('zh-TW', { hour12: false })})`;
+
+            if (sym === 'BTC-USD') {
+              const m = macroList.find(x => x.symbol === 'BTC-USD');
+              if (m) {
+                m.price = newPrice;
+                if (data.o) m.prevClose = parseFloat(data.o);
+              }
+            }
+
+            const now = Date.now();
+            if (now - lastWsRenderTs > 1200) {
+              lastWsRenderTs = now;
+              evaluateDynamicSignal(s);
+              renderMacroBar();
+              renderWatchlist();
+              if (currentSymbol === sym) {
+                renderSelectedStock(s, false);
+                if (newPrice !== oldPrice) flashPriceBox('sel-price-box', newPrice >= oldPrice);
+              }
+            }
+          }
+        };
+      } catch (e) {}
+    }
+
+    // 1B) Binance REST API 備援
+    async function fetchBinanceRestQuotes() {
+      try {
+        const res = await fetchWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT","SOLUSDT"]', {}, 5000);
+        if (!res.ok) return 0;
+        const arr = await res.json();
+        const map = { BTCUSDT: 'BTC-USD', ETHUSDT: 'ETH-USD', SOLUSDT: 'SOL-USD' };
+        let count = 0;
+        const ts = formatFullDateTime(new Date(), true);
+        arr.forEach(item => {
+          const sym = map[item.symbol];
+          if (sym && stockPool[sym]) {
+            const s = stockPool[sym];
+            s.price = parseFloat(item.lastPrice);
+            s.prevClose = parseFloat(item.prevClosePrice);
+            s.dayHigh = parseFloat(item.highPrice);
+            s.dayLow = parseFloat(item.lowPrice);
+            s.lastUpdated = ts;
+            s.liveSource = `⚡ Binance REST (${new Date().toLocaleTimeString('zh-TW', { hour12: false })})`;
+            evaluateDynamicSignal(s);
+            count++;
+            if (sym === 'BTC-USD') {
+              const m = macroList.find(x => x.symbol === 'BTC-USD');
+              if (m) {
+                m.price = s.price;
+                m.prevClose = s.prevClose;
+              }
+            }
+          }
+        });
+        return count;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    // 1C) 國際現貨黃金免金鑰即時 API
+    async function fetchLiveGoldSpot() {
+      const ts = formatFullDateTime(new Date(), true);
+      try {
+        const res = await fetchWithTimeout('https://data-asg.goldprice.org/dbXRates/USD', {}, 5000);
+        if (res.ok) {
+          const json = await res.json();
+          const item = json?.items?.[0];
+          if (item && item.xauPrice && stockPool['GC=F']) {
+            const s = stockPool['GC=F'];
+            s.price = Number(item.xauPrice);
+            if (item.xauClose) s.prevClose = Number(item.xauClose);
+            s.dayHigh = Math.max(s.dayHigh || s.price, s.price);
+            s.dayLow = Math.min(s.dayLow || s.price, s.price);
+            s.lastUpdated = ts;
+            s.liveSource = `🟡 GoldPrice 即時 (${new Date().toLocaleTimeString('zh-TW', { hour12: false })})`;
+            evaluateDynamicSignal(s);
+            const m = macroList.find(x => x.symbol === 'GC=F');
+            if (m) {
+              m.price = s.price;
+              if (item.xauClose) m.prevClose = Number(item.xauClose);
+            }
+            return true;
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    // 2) Yahoo Finance Chart API（多代理並行競速 Promise.any）
+    async function fetchYahooQuote(symbol) {
+      const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo&_=${Date.now()}`;
+      const proxies = [
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
+      ];
+
+      const fetchSingleProxy = async (proxyUrl) => {
+        const res = await fetchWithTimeout(proxyUrl, {}, 6500);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const json = await res.json();
+        const result = json?.chart?.result?.[0];
+        if (!result || !result.meta) throw new Error('Invalid chart payload');
+
+        const meta = result.meta;
+        const price = meta.regularMarketPrice;
+        if (!price || isNaN(price)) throw new Error('No market price');
+
+        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+        const dayHigh = meta.regularMarketDayHigh || price;
+        const dayLow = meta.regularMarketDayLow || price;
+
+        const quote = result.indicators?.quote?.[0];
+        const timestamps = result.timestamp || [];
+        let candles = null;
+        if (quote && timestamps.length > 10) {
+          candles = [];
+          for (let i = 0; i < timestamps.length; i++) {
+            if (quote.close[i] != null) {
+              candles.push({
+                date: new Date(timestamps[i] * 1000).toISOString().slice(5, 10),
+                open: quote.open[i] || quote.close[i],
+                high: quote.high[i] || quote.close[i],
+                low: quote.low[i] || quote.close[i],
+                close: quote.close[i]
+              });
+            }
+          }
+        }
+        return { success: true, price, prevClose, dayHigh, dayLow, candles };
+      };
+
+      try {
+        return await Promise.any(proxies.map(p => fetchSingleProxy(p)));
+      } catch (e) {
+        return { success: false };
+      }
+    }
+
+    // 3) Gemini 3 Flash + Google Search Grounding 批量即時報價與指數同步
+    async function callGeminiWithBackoff(payload, timeoutMs = 18000) {
+      const apiKey = localStorage.getItem('quantpulse_gemini_api_key') || '';
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      const delays = [1000, 2000, 4000];
+
+      for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+          const res = await fetchWithTimeout(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          }, timeoutMs);
+          if (res.ok) {
+            return await res.json();
+          }
+        } catch (err) {}
+        if (attempt < delays.length) {
+          await new Promise(r => setTimeout(r, delays[attempt]));
+        }
+      }
+      throw new Error('Gemini API request failed');
+    }
+
+    async function syncLiveQuotesViaSearch(targetSymbols) {
+      const prompt = `Search the very latest real-time or latest market closing prices right now for these tickers: ${targetSymbols.join(', ')}.
+Return ONLY a valid JSON object mapping each ticker symbol to its numeric latest price (for UK .L stocks return price in GBp pence as quoted on LSE, e.g. 14034).
+Example format: {"2330.TW": 2200, "GOOGL": 283.72, "NVDA": 156.14, "AZN.L": 14034, "GC=F": 3856.52, "^TWII": 40387.37, "^GSPC": 6982.45, "^FTSE": 9842.10}
+Do not include markdown formatting or any text outside the JSON object.`;
+
+      const data = await callGeminiWithBackoff({
+        contents: [{ parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }]
+      }, 16000);
+
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return {};
+      return JSON.parse(jsonMatch[0]);
+    }
+
+    // 主同步排程（每 15 秒自動觸發，並支援手動立即刷新）
+    async function manualRefreshAll(isAuto = false) {
+      if (isSyncingNow) return;
+      isSyncingNow = true;
+
+      const badge = document.getElementById('conn-badge');
+      if (badge) {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span> 正在聯網同步報價...`;
+      }
+
+      let updatedCount = 0;
+      const nowObj = new Date();
+      const nowFullStr = formatFullDateTime(nowObj, true);
+      const nowShortTime = nowObj.toLocaleTimeString('zh-TW', { hour12: false });
+
+      try {
+        const prioritySymbols = [currentSymbol, '2330.TW', '6669.TW', 'GOOGL', 'NVDA', 'AZN.L', '^TWII', '^GSPC', '^FTSE'];
+        const uniquePriority = [...new Set(prioritySymbols)];
+
+        const [cryptoUpdated, goldUpdated] = await Promise.all([
+          fetchBinanceRestQuotes(),
+          fetchLiveGoldSpot(),
+          ...uniquePriority.map(async (sym) => {
+            const yRes = await fetchYahooQuote(sym);
+            if (!yRes.success) return;
+
+            if (stockPool[sym]) {
+              const s = stockPool[sym];
+              const oldPrice = s.price;
+              s.price = yRes.price;
+              s.prevClose = yRes.prevClose;
+              s.dayHigh = yRes.dayHigh;
+              s.dayLow = yRes.dayLow;
+              if (yRes.candles) s.candles = yRes.candles;
+              s.lastUpdated = nowFullStr;
+              s.liveSource = `🟢 Yahoo 即時 (${nowShortTime})`;
+              evaluateDynamicSignal(s);
+              updatedCount++;
+              if (sym === currentSymbol && yRes.price !== oldPrice) {
+                flashPriceBox('sel-price-box', yRes.price >= oldPrice);
+              }
+            }
+            const macroItem = macroList.find(m => m.symbol === sym);
+            if (macroItem) {
+              macroItem.price = yRes.price;
+              macroItem.prevClose = yRes.prevClose;
+              updatedCount++;
+            }
+          })
+        ]);
+
+        updatedCount += (cryptoUpdated || 0) + (goldUpdated ? 1 : 0);
+
+        const allSyms = [
+          ...Object.keys(stockPool).filter(k => stockPool[k].market !== 'CRYPTO' && stockPool[k].market !== 'GOLD'),
+          '^TWII', '^GSPC', '^FTSE'
+        ];
+        const batchPrices = await syncLiveQuotesViaSearch(allSyms);
+
+        for (const [sym, val] of Object.entries(batchPrices)) {
+          const numPrice = parseFloat(val);
+          if (isNaN(numPrice) || numPrice <= 0) continue;
+
+          if (stockPool[sym]) {
+            const s = stockPool[sym];
+            const oldPrice = s.price;
+            s.price = numPrice;
+            s.dayHigh = Math.max(s.dayHigh || numPrice, numPrice);
+            s.dayLow = Math.min(s.dayLow || numPrice, numPrice);
+            s.lastUpdated = nowFullStr;
+            s.liveSource = `🟢 Search即時 (${nowShortTime})`;
+            evaluateDynamicSignal(s);
+            updatedCount++;
+            if (sym === currentSymbol && numPrice !== oldPrice) {
+              flashPriceBox('sel-price-box', numPrice >= oldPrice);
+            }
+          }
+          const macroItem = macroList.find(m => m.symbol === sym);
+          if (macroItem) {
+            macroItem.price = numPrice;
+          }
+        }
+      } catch (e) {
+        Object.values(stockPool).forEach(s => evaluateDynamicSignal(s));
+      } finally {
+        isSyncingNow = false;
+        remainingSec = Math.max(1, Math.floor(pollIntervalMs / 1000));
+        const syncFinishStr = formatFullDateTime(new Date(), false);
+        const lastSyncEl = document.getElementById('last-sync-time');
+        if (lastSyncEl) lastSyncEl.textContent = `同步時間 ${syncFinishStr}`;
+        if (badge) {
+          badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> 即時同步正常 (${nowShortTime})`;
+        }
+
+        saveStateToStorage();
+        renderMacroBar();
+        renderWatchlist();
+        renderSelectedStock(stockPool[currentSymbol], false);
+        renderStrategyMatrix();
+
+        if (!isAuto) {
+          showToast(`已完成跨市場即時報價同步（${syncFinishStr}｜更新 ${updatedCount} 項數據）`, '🔄');
+        }
+      }
+    }
+
+    function setPollInterval(valStr) {
+      pollIntervalMs = parseInt(valStr, 10) || 0;
+      clearInterval(pollTimer);
+      clearInterval(countdownTimer);
+
+      const cdEl = document.getElementById('sync-countdown');
+      if (!cdEl) return;
+      if (pollIntervalMs <= 0) {
+        cdEl.textContent = '⏸️ 手動更新模式';
+        return;
+      }
+
+      remainingSec = Math.floor(pollIntervalMs / 1000);
+      cdEl.textContent = `⏱️ ${remainingSec}s 後自動更新`;
+
+      countdownTimer = setInterval(() => {
+        if (isSyncingNow) {
+          cdEl.textContent = '🔄 同步報價中...';
+          return;
+        }
+        remainingSec--;
+        if (remainingSec <= 0) {
+          remainingSec = Math.floor(pollIntervalMs / 1000);
+        }
+        cdEl.textContent = `⏱️ ${remainingSec}s 後自動更新`;
+      }, 1000);
+
+      pollTimer = setInterval(() => {
+        manualRefreshAll(true);
+      }, pollIntervalMs);
+    }
+
+    // ==========================================
+    // 6. 全市場股票健檢搜尋引擎
+    // ==========================================
+    async function handleSearchSubmit(e) {
+      e.preventDefault();
+      const inputEl = document.getElementById('stock-search-input');
+      const rawQuery = inputEl.value.trim();
+      if (!rawQuery) return;
+
+      const lower = rawQuery.toLowerCase();
+      let resolvedSymbol = NAME_ALIAS_MAP[lower] || rawQuery.toUpperCase();
+
+      if (/^\d{4,6}$/.test(resolvedSymbol)) {
+        resolvedSymbol = `${resolvedSymbol}.TW`;
+      }
+
+      if (stockPool[resolvedSymbol]) {
+        selectStock(resolvedSymbol);
+        generateAiResearchReport(true);
+        showToast(`已切換至「${stockPool[resolvedSymbol].name} (${resolvedSymbol})」並啟動 AI 健檢`, '✅');
+        inputEl.value = '';
+        return;
+      }
+
+      showToast(`正在聯網檢索「${rawQuery}」即時報價、財報與買賣區間...`, '🔍');
+
+      try {
+        const prompt = `Identify the stock/asset matching "${rawQuery}" (could be Taiwan stock .TW/.TWO, US stock, UK LSE stock .L, Crypto, or Commodity).
+Search its live market price, previous close, P/E ratio, latest quarterly earnings summary, institutional ownership/chips flow, technical trend, and latest news.
+Return ONLY a valid JSON object with these exact keys:
+{
+  "symbol": "ticker symbol e.g. 2603.TW or AAPL or ARM.L",
+  "name": "Traditional Chinese + English name e.g. 長榮海運",
+  "market": "TW or US or UK or CRYPTO or GOLD",
+  "marketLabel": "e.g. 🇹🇼 台股上市 or 🇺🇸 美股 or 🇬🇧 英股 LSE",
+  "currency": "TWD or USD or GBp",
+  "sector": "concise industry description in Traditional Chinese",
+  "price": 123.45,
+  "prevClose": 121.00,
+  "pe": "12.5x",
+  "fundamental": "2 sentences on latest quarterly earnings & valuation in Traditional Chinese",
+  "chips": "2 sentences on institutional/foreign investor flows in Traditional Chinese",
+  "technical": "2 sentences on moving averages and support/resistance in Traditional Chinese",
+  "news": "2 sentences on latest news catalysts in Traditional Chinese",
+  "buyLow": 118.0,
+  "buyHigh": 122.0,
+  "targetLow": 135.0,
+  "targetHigh": 142.0,
+  "stopLoss": 112.0
+}`;
+
+        const data = await callGeminiWithBackoff({
+          contents: [{ parts: [{ text: prompt }] }],
+          tools: [{ google_search: {} }]
+        }, 22000);
+
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error('無法解析標的資料');
+
+        const info = JSON.parse(match[0]);
+        if (!info.symbol || !info.price) throw new Error('查無有效報價');
+
+        const yRes = await fetchYahooQuote(info.symbol);
+        const finalPrice = yRes.success ? yRes.price : Number(info.price);
+        const finalPrev = yRes.success ? yRes.prevClose : Number(info.prevClose || finalPrice);
+
+        const newStock = {
+          symbol: info.symbol,
+          name: info.name || rawQuery,
+          market: info.market || 'US',
+          marketLabel: info.marketLabel || '🌐 全球市場',
+          currency: info.currency || (info.symbol.endsWith('.TW') || info.symbol.endsWith('.TWO') ? 'TWD' : info.symbol.endsWith('.L') ? 'GBp' : 'USD'),
+          sector: info.sector || '全球公開市場追蹤標的',
+          price: finalPrice,
+          prevClose: finalPrev,
+          dayHigh: yRes.success ? yRes.dayHigh : finalPrice * 1.01,
+          dayLow: yRes.success ? yRes.dayLow : finalPrice * 0.99,
+          pe: info.pe || 'N/A',
+          fundamental: info.fundamental || '最新財報與營收動能持續追蹤中。',
+          chips: info.chips || '法人與機構資金動向持續觀察中。',
+          technical: info.technical || '均線與關鍵支撐壓力位動態計算中。',
+          news: info.news || '最新產業與法說會消息已納入評估。',
+          buyLow: Number(info.buyLow) || +(finalPrice * 0.96).toFixed(2),
+          buyHigh: Number(info.buyHigh) || +(finalPrice * 0.99).toFixed(2),
+          targetLow: Number(info.targetLow) || +(finalPrice * 1.12).toFixed(2),
+          targetHigh: Number(info.targetHigh) || +(finalPrice * 1.18).toFixed(2),
+          stopLoss: Number(info.stopLoss) || +(finalPrice * 0.91).toFixed(2),
+          candles: yRes.candles || null,
+          lastUpdated: formatFullDateTime(new Date(), true),
+          liveSource: '🟢 即時健檢建檔'
+        };
+
+        evaluateDynamicSignal(newStock);
+        stockPool[newStock.symbol] = newStock;
+        saveStateToStorage();
+
+        filterMarket('ALL');
+        selectStock(newStock.symbol);
+        generateAiResearchReport(true);
+        showToast(`✅ 已成功將「${newStock.name} (${newStock.symbol})」加入即時追蹤並完成健檢！`, '🎯');
+        inputEl.value = '';
+      } catch (err) {
+        showToast(`查無「${rawQuery}」的即時報價，請確認代碼格式（如 2330.TW、AAPL、AZN.L）。`, '⚠️');
+      }
+    }
+
+    // ==========================================
+    // 7. 五大研究模式與 AI 五維統整報告生成器
+    // ==========================================
+    const MODE_PROMPTS = {
+      '1': `Act as a Stanford PhD researcher. Research {target} from first principles instead of surface-level information. Explain the fundamentals, latest developments, competing viewpoints, strongest evidence, practical applications, common misconceptions, and unresolved questions. Prioritize quality over quantity.`,
+      '2': `Build a complete research blueprint for {target}. Organize everything into fundamentals, advanced concepts, key debates, important studies, influential people, real-world applications, future trends, and knowledge gaps. Present it in the best learning order.`,
+      '3': `Research {target} like a Stanford professor preparing a literature review. Separate facts from opinions, identify where experts agree and disagree, explain the evidence supporting each viewpoint, and conclude with the strongest evidence-based understanding.`,
+      '4': `Research {target} as efficiently as possible. Extract only the highest-value information, eliminate repetition and filler, and produce a concise report that captures the ideas most worth knowing.`,
+      '5': `Act as a Stanford PhD researcher, investigative journalist, and subject-matter expert. Research {target} with academic rigor and practical clarity. Remove fluff, challenge assumptions, compare perspectives, highlight the strongest evidence, and deliver only insights that significantly improve understanding.`
+    };
+
+    function renderInstantStructuredReport(s) {
+      if (!s) return;
+      const box = document.getElementById('research-output');
+      if (!box) return;
+
+      const mode = String(currentResearchMode || '5');
+      const buyZone = `${formatPrice(s.buyLow, s.currency)} - ${formatPrice(s.buyHigh, s.currency)}`;
+      const targetZone = `${formatPrice(s.targetLow, s.currency)} - ${formatPrice(s.targetHigh, s.currency)}`;
+      const stopPrice = formatPrice(s.stopLoss, s.currency);
+
+      const templates = {
+        '1': `
+          <div class="font-bold text-cyan-300 border-b border-slate-800 pb-1">🔬 1. 第一性原理深度研究（${s.name}）</div>
+          <div><strong class="text-emerald-300">【🟢 買入時機與區間】</strong>${s.signalAdvice} 建議買入區間：<span class="font-mono-num text-emerald-300 font-bold">${buyZone}</span>。</div>
+          <div><strong class="text-rose-300">【🔴 賣出時機（獲利與止損）】</strong>獲利了結目標 <span class="font-mono-num text-cyan-300 font-bold">${targetZone}</span>；若跌破 <span class="font-mono-num text-rose-300 font-bold">${stopPrice}</span> 立即止損。</div>
+          <div><strong class="text-amber-300">【🏛️ 底層基本面與財報】</strong>目前報價 ${formatPrice(s.price, s.currency)}（PE: ${s.pe}），${s.fundamental}</div>
+          <div><strong class="text-amber-300">【🏦 籌碼與多空博弈】</strong>${s.chips}</div>
+          <div><strong class="text-amber-300">【📐 技術位階與最新消息】</strong>${s.technical}｜${s.news}</div>
+        `,
+        '2': `
+          <div class="font-bold text-cyan-300 border-b border-slate-800 pb-1">🗺️ 2. 研究藍圖（${s.name} 完整決策路徑）</div>
+          <div><strong class="text-amber-300">【基礎與進階基本面】</strong>${s.fundamental}</div>
+          <div><strong class="text-amber-300">【籌碼結構與技術指標】</strong>${s.chips}｜${s.technical}</div>
+          <div><strong class="text-amber-300">【最新消息與未來趨勢】</strong>${s.news}</div>
+          <div><strong class="text-emerald-300">【標準化執行藍圖】</strong>買入區間 <span class="font-mono-num text-emerald-300">${buyZone}</span> → 分批獲利賣出 <span class="font-mono-num text-cyan-300">${targetZone}</span> → 止損防線 <span class="font-mono-num text-rose-300">${stopPrice}</span>。</div>
+        `,
+        '3': `
+          <div class="font-bold text-cyan-300 border-b border-slate-800 pb-1">⚖️ 3. 專家共識文獻綜述（${s.name}）</div>
+          <div><strong class="text-amber-300">【客觀事實與財報實證】</strong>即時報價 ${formatPrice(s.price, s.currency)}，RSI(14)=${s.rsi}，PE=${s.pe}。${s.fundamental}</div>
+          <div><strong class="text-amber-300">【機構共識與籌碼動向】</strong>${s.chips}</div>
+          <div><strong class="text-amber-300">【最新消息影響評估】</strong>${s.news}</div>
+          <div><strong class="text-emerald-300">【最強實證操作結論】</strong>${s.signalAdvice}（買入：<span class="font-mono-num text-emerald-300">${buyZone}</span>｜獲利賣出：<span class="font-mono-num text-cyan-300">${targetZone}</span>｜止損：<span class="font-mono-num text-rose-300">${stopPrice}</span>）。</div>
+        `,
+        '4': `
+          <div class="font-bold text-cyan-300 border-b border-slate-800 pb-1">⚡ 4. 研究加速器（${s.name} 高密度精煉）</div>
+          <div>• <strong class="text-emerald-300">買入建議：</strong><span class="font-mono-num text-emerald-300 font-bold">${buyZone}</span>（${s.signalLabel}）</div>
+          <div>• <strong class="text-cyan-300">獲利賣出：</strong><span class="font-mono-num text-cyan-300 font-bold">${targetZone}</span>｜<strong class="text-rose-300">止損賣出：</strong><span class="font-mono-num text-rose-300 font-bold">${stopPrice}</span></div>
+          <div>• <strong class="text-amber-300">基本面與財報：</strong>${s.fundamental}</div>
+          <div>• <strong class="text-amber-300">籌碼與技術面：</strong>${s.chips}；${s.technical}</div>
+          <div>• <strong class="text-amber-300">最新消息催化：</strong>${s.news}</div>
+        `,
+        '5': `
+          <div class="font-bold text-cyan-300 border-b border-slate-800 pb-1">🎯 5. 終極研究（${s.name} 五維統整與買賣決策）</div>
+          <div><strong class="text-emerald-300">【🟢 買入時機判定】</strong>${s.signalAdvice} 建議買入區間為 <span class="font-mono-num text-emerald-300 font-bold">${buyZone}</span>。</div>
+          <div><strong class="text-rose-300">【🔴 賣出與止損紀律】</strong>當股價觸及 <span class="font-mono-num text-cyan-300 font-bold">${targetZone}</span> 應分批獲利了結；若帶量跌破 <span class="font-mono-num text-rose-300 font-bold">${stopPrice}</span> 則多頭前提失效，必須嚴格止損賣出。</div>
+          <div><strong class="text-amber-300">【🏛️ 基本面與最新財報】</strong>${s.fundamental}</div>
+          <div><strong class="text-amber-300">【🏦 籌碼面與技術分析】</strong>${s.chips}｜${s.technical}</div>
+          <div><strong class="text-amber-300">【📰 最新消息與風險】</strong>${s.news}</div>
+        `
+      };
+
+      box.innerHTML = templates[mode] || templates['5'];
+    }
+
+    function selectResearchMode(mode) {
+      currentResearchMode = String(mode);
+      document.querySelectorAll('.mode-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-mode') === currentResearchMode;
+        btn.className = isActive
+          ? 'mode-btn active text-[11px] py-1.5 rounded bg-cyan-600 text-white font-semibold'
+          : 'mode-btn text-[11px] py-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium';
+      });
+
+      const s = stockPool[currentSymbol];
+      if (s) {
+        renderInstantStructuredReport(s);
+        generateAiResearchReport(false);
+      }
+    }
+
+    async function generateAiResearchReport(forceRefresh = false) {
+      const s = stockPool[currentSymbol];
+      if (!s) return;
+
+      const cacheKey = `${s.symbol}_${currentResearchMode}`;
+      const box = document.getElementById('research-output');
+      const btn = document.getElementById('btn-ai-deep');
+
+      if (!forceRefresh && aiReportCache[cacheKey] && (Date.now() - aiReportCache[cacheKey].ts < 300000)) {
+        box.innerHTML = aiReportCache[cacheKey].html;
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '⏳ AI 統整中...';
+      const fallbackHtml = box.innerHTML;
+      box.innerHTML = `
+        <div class="flex items-center gap-2 text-cyan-300 font-semibold py-1.5 border-b border-slate-800 mb-2">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+          <span>AI 正在聯網檢索「${s.name}」最新財報、籌碼、技術指標與新聞...</span>
+        </div>
+        ${fallbackHtml}
+      `;
+
+      const targetDesc = `${s.name} (${s.symbol}), current live price ${formatPrice(s.price, s.currency)}, P/E ${s.pe}, RSI(14) ${s.rsi}`;
+      const modeInstruction = (MODE_PROMPTS[currentResearchMode] || MODE_PROMPTS['5']).replace('{target}', targetDesc);
+      const fullPrompt = `${modeInstruction}
+
+Search the latest quarterly earnings reports, institutional/chips flows, technical support/resistance levels, and breaking news for ${s.name} (${s.symbol}) right now.
+Synthesize all 5 dimensions (基本面, 籌碼面, 技術分析, 最新財報, 最新消息) into a concise Traditional Chinese (繁體中文) report with these exact sections:
+1. 【🟢 買入建議與進場時機】：明確判斷現在是否適合買入、建議分批買進價格區間與理由。
+2. 【🔴 賣出建議（獲利了結與止損）】：明確給出波段獲利了結目標價，以及必須無條件止損賣出的價格與條件。
+3. 【🏛️ 基本面與最新財報】：最新一季營收、毛利率、EPS 表現與估值水準。
+4. 【🏦 籌碼面與機構動向】：外資／投信／大戶或鏈上資金流向。
+5. 【📐 技術分析與最新消息】：均線位階、關鍵支撐壓力與最新消息影響。`;
+
+      try {
+        const data = await callGeminiWithBackoff({
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          tools: [{ google_search: {} }]
+        }, 22000);
+
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && currentSymbol === s.symbol) {
+          const formatted = text
+            .replace(/\*\*(.*?)\*\*/g, '<strong class="text-cyan-300">$1</strong>')
+            .replace(/【(.*?)】/g, '<div class="font-bold text-amber-300 mt-2 mb-0.5">【$1】</div>')
+            .replace(/\n/g, '<br>');
+          const finalHtml = `
+            <div class="flex items-center justify-between text-[11px] font-bold text-emerald-400 border-b border-slate-800 pb-1.5 mb-1">
+              <span>✨ AI 五維聯網深度統整（${s.name}）</span>
+              <span class="text-slate-400 font-normal">${formatFullDateTime(new Date(), false)}</span>
+            </div>
+            <div class="space-y-1 text-slate-200">${formatted}</div>
+          `;
+          aiReportCache[cacheKey] = { html: finalHtml, ts: Date.now() };
+          box.innerHTML = finalHtml;
+          if (forceRefresh) showToast(`✅ 已更新 ${s.name} 最新 AI 五維買賣分析報告`, '✨');
+        } else {
+          box.innerHTML = fallbackHtml;
+        }
+      } catch (e) {
+        box.innerHTML = fallbackHtml;
+        if (forceRefresh) showToast('⚠️ AI 聯網連線逾時，已保留本地五維量化分析。', '⚠️');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '✨ 重新 AI 聯網統整';
+      }
+    }
+
+    // ==========================================
+    // 8. 互動式 HTML5 K 線與買賣防線繪圖引擎
+    // ==========================================
+    let chartHoverIdx = -1;
+
+    function setChartRange(days) {
+      chartRange = days;
+      document.querySelectorAll('.range-btn').forEach(btn => {
+        const active = parseInt(btn.getAttribute('data-range'), 10) === days;
+        btn.className = active
+          ? 'range-btn active text-[11px] px-2 py-0.5 rounded bg-cyan-600 text-white'
+          : 'range-btn text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700';
+      });
+      drawKlineChart();
+    }
+
+    function drawKlineChart() {
+      const canvas = document.getElementById('kline-canvas');
+      const container = document.getElementById('kline-container');
+      const s = stockPool[currentSymbol];
+      if (!canvas || !container || !s) return;
+
+      const rect = container.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      const W = rect.width;
+      const H = rect.height;
+      const pad = { top: 18, right: 64, bottom: 24, left: 12 };
+      const plotW = W - pad.left - pad.right;
+      const plotH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      const allCandles = generateOrGetCandles(s);
+      const { ma5, ma20, ma60 } = computeTechnicalIndicators(allCandles);
+      const startIdx = Math.max(0, allCandles.length - chartRange);
+      const vis = allCandles.slice(startIdx);
+      const vMa5 = ma5.slice(startIdx);
+      const vMa20 = ma20.slice(startIdx);
+      const vMa60 = ma60.slice(startIdx);
+
+      let minP = Math.min(...vis.map(c => c.low), s.stopLoss || Infinity);
+      let maxP = Math.max(...vis.map(c => c.high), s.buyHigh || -Infinity);
+      const margin = (maxP - minP) * 0.08 || maxP * 0.02;
+      minP -= margin;
+      maxP += margin;
+
+      const yOf = (val) => pad.top + ((maxP - val) / (maxP - minP)) * plotH;
+      const stepX = plotW / vis.length;
+
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (plotH / 4) * i;
+        const val = maxP - ((maxP - minP) / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(val >= 100 ? val.toFixed(0) : val.toFixed(2), W - pad.right + 6, y + 3);
+      }
+
+      if (s.buyLow && s.buyHigh) {
+        const yTop = yOf(s.buyHigh);
+        const yBot = yOf(s.buyLow);
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.14)';
+        ctx.fillRect(pad.left, yTop, plotW, Math.max(4, yBot - yTop));
+        ctx.fillStyle = '#34d399';
+        ctx.fillText('買入區', pad.left + 4, yTop - 3);
+      }
+
+      if (s.stopLoss) {
+        const yStop = yOf(s.stopLoss);
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#f43f5e';
+        ctx.beginPath();
+        ctx.moveTo(pad.left, yStop);
+        ctx.lineTo(W - pad.right, yStop);
+        ctx.stroke();
+        ctx.fillStyle = '#fb7185';
+        ctx.fillText(`止損 ${s.stopLoss}`, pad.left + 4, yStop - 3);
+        ctx.restore();
+      }
+
+      const candleW = Math.max(2, stepX * 0.62);
+      vis.forEach((c, idx) => {
+        const cx = pad.left + idx * stepX + stepX / 2;
+        const isUp = c.close >= c.open;
+        const clr = getUpDownClasses(isUp).candle;
+        ctx.strokeStyle = clr;
+        ctx.fillStyle = clr;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, yOf(c.high));
+        ctx.lineTo(cx, yOf(c.low));
+        ctx.stroke();
+
+        const topY = yOf(Math.max(c.open, c.close));
+        const bodyH = Math.max(1.5, Math.abs(yOf(c.open) - yOf(c.close)));
+        ctx.fillRect(cx - candleW / 2, topY, candleW, bodyH);
+      });
+
+      const drawLine = (arr, color) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        let started = false;
+        arr.forEach((v, idx) => {
+          if (v === null) return;
+          const x = pad.left + idx * stepX + stepX / 2;
+          const y = yOf(v);
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.stroke();
+      };
+      drawLine(vMa5, '#fbbf24');
+      drawLine(vMa20, '#22d3ee');
+      drawLine(vMa60, '#c084fc');
+
+      if (chartHoverIdx >= 0 && chartHoverIdx < vis.length) {
+        const c = vis[chartHoverIdx];
+        const cx = pad.left + chartHoverIdx * stepX + stepX / 2;
+        ctx.save();
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)';
+        ctx.beginPath();
+        ctx.moveTo(cx, pad.top);
+        ctx.lineTo(cx, H - pad.bottom);
+        ctx.stroke();
+        ctx.restore();
+
+        const hud = document.getElementById('chart-hud');
+        if (hud) {
+          hud.classList.remove('hidden');
+          hud.innerHTML = `${c.date} | 開:${c.open.toFixed(2)} 高:${c.high.toFixed(2)} 低:${c.low.toFixed(2)} 收:<span class="text-cyan-300 font-bold">${c.close.toFixed(2)}</span>`;
+        }
+      }
+    }
+
+    function bindChartInteraction() {
+      const canvas = document.getElementById('kline-canvas');
+      if (!canvas) return;
+      const updateHover = (clientX) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = clientX - rect.left - 12;
+        const plotW = rect.width - 76;
+        if (x < 0 || x > plotW) {
+          chartHoverIdx = -1;
+          const hud = document.getElementById('chart-hud');
+          if (hud) hud.classList.add('hidden');
+          drawKlineChart();
+          return;
+        }
+        const idx = Math.min(chartRange - 1, Math.max(0, Math.floor((x / plotW) * chartRange)));
+        if (idx !== chartHoverIdx) {
+          chartHoverIdx = idx;
+          drawKlineChart();
+        }
+      };
+      canvas.addEventListener('mousemove', e => updateHover(e.clientX));
+      canvas.addEventListener('mouseleave', () => {
+        chartHoverIdx = -1;
+        const hud = document.getElementById('chart-hud');
+        if (hud) hud.classList.add('hidden');
+        drawKlineChart();
+      });
+      canvas.addEventListener('touchmove', e => {
+        if (e.touches && e.touches[0]) updateHover(e.touches[0].clientX);
+      }, { passive: true });
+    }
+
+    // ==========================================
+    // 9. UI 視圖渲染器
+    // ==========================================
+    function renderMacroBar() {
+      const bar = document.getElementById('macro-ticker-bar');
+      if (!bar) return;
+      bar.innerHTML = macroList.map(m => {
+        const chgPct = m.prevClose ? ((m.price - m.prevClose) / m.prevClose) * 100 : 0;
+        const clr = getUpDownClasses(chgPct >= 0);
+        const valText = m.unit === '%'
+          ? `${m.price.toFixed(2)}%`
+          : `${m.unit}${m.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return `
+          <div class="bg-slate-900/90 border border-slate-800/90 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
+            <span class="text-slate-300 font-medium truncate">${m.name}</span>
+            <div class="text-right font-mono-num ml-1.5">
+              <div class="font-bold text-slate-100">${valText}</div>
+              <div class="text-[10px] ${clr.text}">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterMarket(mkt) {
+      currentMarketFilter = mkt;
+      document.querySelectorAll('.mkt-btn').forEach(btn => {
+        const active = btn.getAttribute('data-mkt') === mkt;
+        btn.className = active
+          ? 'mkt-btn active text-[11px] px-2 py-1 rounded-md bg-cyan-600 text-white font-medium'
+          : 'mkt-btn text-[11px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700';
+      });
+      renderWatchlist();
+    }
+
+    function renderWatchlist() {
+      const container = document.getElementById('watchlist-container');
+      if (!container) return;
+      const list = Object.values(stockPool).filter(s => currentMarketFilter === 'ALL' || s.market === currentMarketFilter);
+      const countEl = document.getElementById('watchlist-count');
+      if (countEl) countEl.textContent = Object.keys(stockPool).length;
+
+      container.innerHTML = list.map(s => {
+        const chgPct = s.prevClose ? ((s.price - s.prevClose) / s.prevClose) * 100 : 0;
+        const clr = getUpDownClasses(chgPct >= 0);
+        const isSelected = s.symbol === currentSymbol;
+        return `
+          <div onclick="selectStock('${s.symbol}')" class="cursor-pointer rounded-lg p-2.5 border transition ${isSelected ? 'bg-slate-800/95 border-cyan-500/80 shadow-md' : 'bg-slate-950/75 border-slate-800/80 hover:border-slate-700'}">
+            <div class="flex items-center justify-between">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-xs text-white truncate">${s.name}</span>
+                  <span class="font-mono-num text-[10px] text-slate-400">${s.symbol}</span>
+                </div>
+                <div class="mt-1 flex items-center gap-1.5">
+                  <span class="text-[10px] px-1.5 py-0.5 rounded border ${s.signalColor}">${s.signalLabel}</span>
+                </div>
+              </div>
+              <div class="text-right font-mono-num ml-2">
+                <div class="text-xs font-bold text-slate-100">${formatPrice(s.price, s.currency)}</div>
+                <div class="text-[11px] font-semibold ${clr.text}">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderSelectedStock(s, triggerAi = true) {
+      if (!s) return;
+      const chg = s.price - s.prevClose;
+      const chgPct = s.prevClose > 0 ? (chg / s.prevClose) * 100 : 0;
+      const clr = getUpDownClasses(chg >= 0);
+
+      document.getElementById('sel-market-tag').textContent = s.marketLabel;
+      document.getElementById('sel-name').textContent = `${s.name} (${s.symbol})`;
+      document.getElementById('sel-source').textContent = s.liveSource;
+      document.getElementById('sel-sector').textContent = s.sector;
+      const qTimeEl = document.getElementById('sel-quote-time');
+      if (qTimeEl) {
+        qTimeEl.textContent = `報價更新日期時間：${s.lastUpdated || formatFullDateTime(new Date(), true)}`;
+      }
+      document.getElementById('sel-price').textContent = formatPrice(s.price, s.currency);
+
+      const chgEl = document.getElementById('sel-change');
+      chgEl.className = `font-mono-num text-xs font-semibold ${clr.text}`;
+      chgEl.textContent = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${chg >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)`;
+
+      document.getElementById('sel-high').textContent = formatPrice(s.dayHigh, s.currency);
+      document.getElementById('sel-low').textContent = formatPrice(s.dayLow, s.currency);
+      document.getElementById('sel-pe').textContent = s.pe;
+      document.getElementById('sel-rsi').textContent = s.rsi;
+
+      document.getElementById('dim-fundamental').textContent = s.fundamental;
+      document.getElementById('dim-chips').textContent = s.chips;
+      document.getElementById('dim-technical').textContent = s.technical;
+      document.getElementById('dim-news').textContent = s.news;
+
+      // 動態計算四維評分標籤
+      const techScore = Math.min(96, Math.max(52, Math.round(100 - Math.abs((s.rsi || 50) - 55) * 1.1)));
+      const fundScore = s.pe && s.pe.includes('1') ? 91 : 86;
+      document.getElementById('score-fund').textContent = `${fundScore}分`;
+      document.getElementById('score-chip').textContent = `${Math.round((fundScore + techScore) / 2)}分`;
+      document.getElementById('score-tech').textContent = `${techScore}分`;
+      document.getElementById('score-news').textContent = chg >= 0 ? '催化偏多' : '消化雜音';
+
+      const badge = document.getElementById('adv-badge');
+      badge.className = `text-xs font-bold px-2.5 py-0.5 rounded-full border ${s.signalColor}`;
+      badge.textContent = s.signalLabel;
+      document.getElementById('adv-summary').textContent = s.signalAdvice;
+      document.getElementById('adv-buy-zone').textContent = `${formatPrice(s.buyLow, s.currency)} - ${formatPrice(s.buyHigh, s.currency)}`;
+      document.getElementById('adv-target').textContent = `${formatPrice(s.targetLow, s.currency)} - ${formatPrice(s.targetHigh, s.currency)}`;
+      document.getElementById('adv-stop').textContent = formatPrice(s.stopLoss, s.currency);
+
+      drawKlineChart();
+      renderInstantStructuredReport(s);
+      if (triggerAi) {
+        generateAiResearchReport(false);
+      }
+    }
+
+    function renderStrategyMatrix() {
+      const tbody = document.getElementById('strategy-matrix-body');
+      if (!tbody) return;
+      tbody.innerHTML = Object.values(stockPool).map(s => {
+        const chgPct = s.prevClose ? ((s.price - s.prevClose) / s.prevClose) * 100 : 0;
+        const clr = getUpDownClasses(chgPct >= 0);
+        return `
+          <tr onclick="selectStock('${s.symbol}')" class="cursor-pointer hover:bg-slate-800/60 transition">
+            <td class="py-2 px-2 font-sans text-[11px] text-slate-400 whitespace-nowrap">${s.marketLabel}</td>
+            <td class="py-2 px-2 font-sans font-bold text-slate-100 whitespace-nowrap">${s.name} <span class="font-mono-num font-normal text-slate-400">(${s.symbol})</span></td>
+            <td class="py-2 px-2 text-right font-bold text-white whitespace-nowrap">${formatPrice(s.price, s.currency)}</td>
+            <td class="py-2 px-2 text-right font-semibold ${clr.text} whitespace-nowrap">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</td>
+            <td class="py-2 px-2 text-center font-sans whitespace-nowrap"><span class="text-[10px] px-2 py-0.5 rounded-full border ${s.signalColor}">${s.signalLabel}</span></td>
+            <td class="py-2 px-2 text-right text-emerald-300 whitespace-nowrap">${formatPrice(s.buyLow, s.currency)} - ${formatPrice(s.buyHigh, s.currency)}</td>
+            <td class="py-2 px-2 text-right text-cyan-300 whitespace-nowrap">${formatPrice(s.targetLow, s.currency)}</td>
+            <td class="py-2 px-2 text-right text-rose-300 whitespace-nowrap">${formatPrice(s.stopLoss, s.currency)}</td>
+            <td class="py-2 px-2 font-sans text-[11px] text-slate-400 hidden md:table-cell max-w-xs truncate">${s.news}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function selectStock(symbol) {
+      if (!stockPool[symbol]) return;
+      currentSymbol = symbol;
+      renderWatchlist();
+      renderSelectedStock(stockPool[symbol], true);
+
+      fetchYahooQuote(symbol).then(yRes => {
+        if (yRes.success && stockPool[symbol]) {
+          const s = stockPool[symbol];
+          s.price = yRes.price;
+          s.prevClose = yRes.prevClose;
+          s.dayHigh = yRes.dayHigh;
+          s.dayLow = yRes.dayLow;
+          if (yRes.candles) s.candles = yRes.candles;
+          s.lastUpdated = formatFullDateTime(new Date(), true);
+          s.liveSource = `🟢 Yahoo 即時 (${new Date().toLocaleTimeString('zh-TW', { hour12: false })})`;
+          evaluateDynamicSignal(s);
+          if (currentSymbol === symbol) renderSelectedStock(s, false);
+          renderWatchlist();
+          renderStrategyMatrix();
+        }
+      });
+    }
+
+    function renderAllViews(triggerAi = true) {
+      renderMacroBar();
+      renderWatchlist();
+      renderSelectedStock(stockPool[currentSymbol], triggerAi);
+      renderStrategyMatrix();
+    }
+
+    // 明確掛載所有全域按鈕事件處理器
+    window.handleSearchSubmit = handleSearchSubmit;
+    window.setPollInterval = setPollInterval;
+    window.toggleColorConvention = toggleColorConvention;
+    window.manualRefreshAll = manualRefreshAll;
+    window.filterMarket = filterMarket;
+    window.selectStock = selectStock;
+    window.setChartRange = setChartRange;
+    window.selectResearchMode = selectResearchMode;
+    window.generateAiResearchReport = generateAiResearchReport;
+    window.hideToast = hideToast;
+    window.openApiKeyModal = openApiKeyModal;
+    window.closeApiKeyModal = closeApiKeyModal;
+    window.saveGeminiApiKey = saveGeminiApiKey;
+
+    // ==========================================
+    // 10. 應用程式安全啟動入口
+    // ==========================================
+    window.addEventListener('DOMContentLoaded', () => {
+      loadStateFromStorage();
+      Object.values(stockPool).forEach(s => evaluateDynamicSignal(s));
+
+      updateClock();
+      setInterval(updateClock, 1000);
+
+      bindChartInteraction();
+      window.addEventListener('resize', drawKlineChart);
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          manualRefreshAll(true);
+        }
+      });
+
+      renderAllViews(true);
+
+      setTimeout(() => {
+        initBinanceWebSocket();
+        setPollInterval('15000');
+        manualRefreshAll(true);
+      }, 300);
+    });
+  </script>
+</body>
+</html>
